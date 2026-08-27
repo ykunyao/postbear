@@ -30,6 +30,14 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y
 
+      # choco 的 innosetup 核心包不含非官方语言文件，单独补中文界面
+      - name: Fetch Chinese language file
+        shell: pwsh
+        run: >
+          Invoke-WebRequest
+          -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl"
+          -OutFile "${env:ProgramFiles(x86)}\Inno Setup 6\Languages\ChineseSimplified.isl"
+
       - name: Build installer
         shell: pwsh
         run: >
