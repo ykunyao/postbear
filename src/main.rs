@@ -26,7 +26,7 @@ const DATA_URLS: [&str; 2] = [
 const LAUNCH_DATE: (i32, u32, u32) = (2026, 8, 26);
 
 /// 贴纸尺寸与右下角边距
-const CARD_SIZE: (f32, f32) = (300., 300.);
+const CARD_SIZE: (f32, f32) = (300., 190.);
 const SCREEN_MARGIN: f32 = 32.;
 
 #[derive(Debug, Deserialize)]
@@ -268,9 +268,12 @@ impl Render for BearState {
                             .child("✕"),
                     ),
             )
-            // 正文：紧跟头像起笔，像便签一样自上而下书写；剩余空间全部沉底
+            // 正文：紧跟头像起笔，写不下时区内滚动，外形永远紧凑
             .child(
                 div()
+                    .id("diary-flow")
+                    .flex_1()
+                    .overflow_y_scroll()
                     .w_full()
                     .px(px(16.))
                     .pt(px(6.))
@@ -287,8 +290,6 @@ impl Render for BearState {
                             }),
                     ),
             )
-            // 全部富余空间都归这里，把底行压到卡片下缘
-            .child(div().flex_1())
             // 底行：左脚印=刷新入口，右天气温度与天数
             .child(
                 div()
