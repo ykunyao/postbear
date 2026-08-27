@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     div, prelude::*, px, relative, rgb, rgba, point, size, App, Bounds, Context, MouseButton,
-    Pixels, Render, SharedString, Window, WindowBackgroundAppearance, WindowBounds, WindowOptions,
+    Pixels, Render, SharedString, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowControlArea, WindowOptions,
 };
 use gpui_platform::application;
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,7 @@ const DATA_URLS: [&str; 2] = [
 const LAUNCH_DATE: (i32, u32, u32) = (2026, 8, 26);
 
 /// 贴纸尺寸与右下角边距
-const CARD_SIZE: (f32, f32) = (300., 380.);
+const CARD_SIZE: (f32, f32) = (300., 340.);
 const SCREEN_MARGIN: f32 = 32.;
 
 #[derive(Debug, Deserialize)]
@@ -241,11 +242,8 @@ impl Render for BearState {
             .bg(paper)
             .text_color(ink)
             .shadow_md()
-            // 整卡皆是拖拽热区；下方两个小按钮会各自拦住冒泡
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|_, _, window, _| window.start_window_move()),
-            )
+            // 原生标题栏热区：按住卡上任何非按钮处交给系统拖动
+            .window_control_area(WindowControlArea::Drag)
             // 顶行：表情即门面，右侧一枚极轻的关闭钮
             .child(
                 div()
@@ -277,12 +275,9 @@ impl Render for BearState {
                     .flex()
                     .items_center()
                     .px(px(16.))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|_, _, window, _| window.start_window_move()),
-                    )
                     .child(
                         div()
+                            .w_full()
                             .text_size(px(15.))
                             .line_height(relative(1.85))
                             .text_color(ink)
@@ -293,7 +288,7 @@ impl Render for BearState {
                             }),
                     ),
             )
-            // 底行：左脚印=刷新入口，右天气温度与天数；整行亦可拖
+            // 底行：左脚印=刷新入口，右天气温度与天数
             .child(
                 div()
                     .flex()
@@ -301,10 +296,6 @@ impl Render for BearState {
                     .justify_between()
                     .px(px(14.))
                     .pb(px(10.))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|_, _, window, _| window.start_window_move()),
-                    )
                     .child(
                         div()
                             .id("paw")
