@@ -1,7 +1,7 @@
 //! postbear —— Bear 的桌角（桌面贴纸形态）
 //!
-//! 无边框圆角小卡，住在屏幕右下角：平时半透明淡化，鼠标靠近才显形；
-//! 顶部抓取条可整卡拖动，位置会被记住。
+//! 一张住在屏幕右下角的便签： Bear 的表情 + 今天的一句话，仅此而已。
+//! 按住卡片任意空白处即可拖动；点小脚印刷新；位置自动记忆。
 //! 运行：`cargo run`（或 Windows 下 `dev.cmd run`）
 
 use std::fs;
@@ -9,9 +9,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::*, px, relative, rgb, rgba, size, App, Bounds, Context, MouseButton,
-    Pixels, Render, SharedString, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowOptions,
+    div, prelude::*, px, relative, rgb, rgba, point, size, App, Bounds, Context, MouseButton,
+    Pixels, Render, SharedString, Window, WindowBackgroundAppearance, WindowBounds, WindowOptions,
 };
 use gpui_platform::application;
 use serde::{Deserialize, Serialize};
@@ -26,15 +25,15 @@ const DATA_URLS: [&str; 2] = [
 const LAUNCH_DATE: (i32, u32, u32) = (2026, 8, 26);
 
 /// 贴纸尺寸与右下角边距
-const CARD_SIZE: (f32, f32) = (360., 520.);
-const SCREEN_MARGIN: f32 = 28.;
+const CARD_SIZE: (f32, f32) = (340., 430.);
+const SCREEN_MARGIN: f32 = 32.;
 
 #[derive(Debug, Deserialize)]
 struct DiaryData {
     weather: String,
     temp: String,
     text: String,
-    updated_at: String,
+    // data.json 里还有 updated_at，贴纸 UI 用不到，交给 serde 忽略
 }
 
 // ---------- 位置持久化 ----------
@@ -83,16 +82,16 @@ fn initial_origin(display: Option<Bounds<Pixels>>) -> gpui::Point<Pixels> {
             let max_x = db.origin.x + db.size.width - px(120.);
             let min_y = db.origin.y - sh + px(80.);
             let max_y = db.origin.y + db.size.height - px(80.);
-            if (sx > min_x && sx < max_x && sy > min_y && sy < max_y) || display.is_none() {
-                return gpui::point(sx, sy);
+            if sx > min_x && sx < max_x && sy > min_y && sy < max_y {
+                return point(sx, sy);
             }
         }
     }
 
     let Some(db) = display else {
-        return gpui::point(px(100.), px(100.));
+        return point(px(100.), px(100.));
     };
-    gpui::point(
+    point(
         db.origin.x + db.size.width - sw - px(SCREEN_MARGIN),
         db.origin.y + db.size.height - sh - px(SCREEN_MARGIN),
     )
@@ -100,28 +99,15 @@ fn initial_origin(display: Option<Bounds<Pixels>>) -> gpui::Point<Pixels> {
 
 // ---------- 数据 ----------
 
-struct WeatherUi {
-    avatar: &'static str,
-    icon: &'static str,
-    mood: &'static str,
-    greeting: &'static str,
-}
-
-fn weather_display(weather: &str) -> WeatherUi {
-    let (avatar, icon, mood, greeting) = match weather {
-        "sunny" => ("😊", "☀", "CLEAR", "今天天气晴朗，Bear 心情很好"),
-        "cloudy" => ("😌", "☁", "CLOUDY", "今天云很多，但 Bear 心情不赖"),
-        "rain" => ("😴", "☂", "RAIN", "下雨天，Bear 最适合窝着发呆"),
-        "snow" => ("❄", "❅", "SNOW", "下雪了，Bear 想看窗外的世界"),
-        "fog" => ("🌫", "≡", "FOG", "今天有雾，Bear 有点看不清路"),
-        "thunder" => ("⛈", "⚡", "STORM", "打雷了，Bear 缩在被窝里"),
-        _ => ("👧", "", "?", "Bear 在记录今天的天气"),
-    };
-    WeatherUi {
-        avatar,
-        icon,
-        mood,
-        greeting,
+fn weather_display(weather: &str) -> (&'static str, &'static str) {
+    match weather {
+        "sunny" => ("😊", "☀"),
+        "cloudy" => ("😌", "☁"),
+        "rain" => ("😴", "☂"),
+        "snow" => ("❄", "❅"),
+        "fog" => ("🌫", "≈"),
+        "thunder" => ("⛈", "⚡"),
+        _ => ("👧", ""),
     }
 }
 
@@ -152,17 +138,9 @@ fn day_number() -> i64 {
     (today - launch).num_days().max(0)
 }
 
-fn today_label() -> String {
-    chrono::Local::now()
-        .format("%b %d, %Y")
-        .to_string()
-        .to_uppercase()
-}
-
 enum Status {
     Idle,
     Fetching,
-    Failed(String),
 }
 
 struct BearState {
@@ -171,10 +149,7 @@ struct BearState {
 
     avatar: &'static str,
     icon: &'static str,
-    mood: &'static str,
-    tagline: &'static str,
-    weather_line: SharedString,
-    updated_at: Option<SharedString>,
+    temp: SharedString,
 
     // 打字机：round 是回合号，旧动画发现自己过期就自动退场
     full_text: SharedString,
@@ -222,28 +197,24 @@ impl BearState {
 
         cx.spawn(async move |this, cx| {
             let result = cx.background_spawn(async move { fetch_diary() }).await;
-            let _ = this.update(cx, |state, cx| match result {
-                Ok(data) => state.apply(data, cx),
-                Err(err) => {
-                    state.status = Status::Failed(err);
-                    cx.notify();
+            let _ = this.update(cx, |state, cx| {
+                if let Ok(data) = result {
+                    let (avatar, icon) = weather_display(&data.weather);
+                    state.avatar = avatar;
+                    state.icon = icon;
+                    state.temp = SharedString::from(data.temp);
+                    state.apply_text(data.text, cx);
                 }
+                state.status = Status::Idle;
+                cx.notify();
             });
         })
         .detach();
     }
 
-    fn apply(&mut self, data: DiaryData, cx: &mut Context<Self>) {
-        let ui = weather_display(&data.weather);
-        self.avatar = ui.avatar;
-        self.icon = ui.icon;
-        self.mood = ui.mood;
-        self.tagline = ui.greeting;
-        self.weather_line = SharedString::from(format!("{} {}°", ui.mood, data.temp));
-        self.updated_at = Some(SharedString::from(data.updated_at));
-        self.status = Status::Idle;
+    fn apply_text(&mut self, text: String, cx: &mut Context<Self>) {
         cx.notify();
-        self.begin_typing(data.text, cx);
+        self.begin_typing(text, cx);
     }
 }
 
@@ -251,18 +222,12 @@ impl Render for BearState {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let typed: String = self.full_text.chars().take(self.typed_len).collect();
         let still_typing = self.typed_len < self.full_text.chars().count();
-        let status_line = match &self.status {
-            Status::Idle => "— with GitHub Actions —".to_string(),
-            Status::Fetching => "fetching …".to_string(),
-            Status::Failed(err) => format!("failed: {err}"),
-        };
+        let fetching = matches!(self.status, Status::Fetching);
 
-        // 纸面配色 + 半透明贴纸质感（背景为系统级模糊）
-        let paper = rgba(0xF3EBD8D9); // 米黄，约 85% 不透明度
-        let card = rgba(0xEDE3CCF0);
+        // 米黄纸 + 半透明贴纸质感（背景为系统级模糊）
+        let paper = rgba(0xF3EBD8E6); // 约 90% 不透明度
         let ink = rgb(0x3D3528);
         let ink_soft = rgb(0x6E6350);
-        let accent = rgb(0xB0432E);
         let line = rgb(0xCDBFA2);
 
         div()
@@ -270,173 +235,91 @@ impl Render for BearState {
             .flex_col()
             .size_full()
             .overflow_hidden()
-            .rounded(px(14.))
+            .rounded(px(16.))
             .border_1()
             .border_color(line)
             .bg(paper)
             .text_color(ink)
             .shadow_lg()
             // 贴纸的呼吸：平时半透明，靠近才完全显形
-            .opacity(0.62)
+            .opacity(0.66)
             .hover(|this| this.opacity(1.0))
-            // 抓取条：按住即可拖动整卡（原生窗口移动），右侧独立 ✕
+            // 整卡皆是拖拽热区；下方两个小按钮会各自拦住冒泡
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|_, _, window, _| window.start_window_move()),
+            )
+            // 顶行：表情即门面，右侧一枚极轻的关闭钮
             .child(
                 div()
-                    .id("grab-bar")
-                    .h(px(26.))
-                    .w_full()
                     .flex()
                     .items_center()
-                    .pl(px(14.))
-                    .pr(px(6.))
-                    .bg(rgba(0xEDE3CC99))
-                    .border_b_1()
-                    .border_color(line)
-                    .text_size(px(11.))
-                    .text_color(ink_soft)
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|_, _, window, _| window.start_window_move()),
-                    )
-                    .child(format!("⠿  REC. NO. #{}", self.day_no))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_1()
-                            .justify_center()
-                            .child(self.updated_at.as_deref().unwrap_or("").to_string()),
-                    )
+                    .justify_between()
+                    .pl(px(18.))
+                    .pr(px(12.))
+                    .pt(px(12.))
+                    .child(div().text_size(px(30.)).child(self.avatar))
                     .child(
                         div()
                             .id("close")
                             .cursor_pointer()
-                            .px(px(7.))
+                            .px(px(6.))
                             .rounded(px(4.))
-                            .hover(|this| this.bg(rgba(0xB0432E33)))
-                            .text_color(accent)
+                            .text_size(px(13.))
+                            .text_color(rgb(0xB7A989))
+                            .hover(|this| this.text_color(rgb(0xB0432E)))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|_, _, window, _| window.remove_window()))
                             .child("✕"),
                     ),
             )
+            // 正文：今天的日记是唯一的主角，垂直居中
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .px(px(24.))
+                    .child(
+                        div()
+                            .text_size(px(15.5))
+                            .line_height(relative(1.95))
+                            .text_color(ink)
+                            .child(if still_typing {
+                                format!("{typed}▌")
+                            } else {
+                                typed.clone()
+                            }),
+                    ),
+            )
+            // 底行：左脚印=刷新入口，右天气温度与天数
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .flex_1()
+                    .items_center()
+                    .justify_between()
                     .px(px(20.))
-                    .py(px(14.))
-                    .gap(px(9.))
-                    // 报头
+                    .pb(px(14.))
                     .child(
                         div()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap(px(1.))
-                            .child(div().text_size(px(40.)).child(self.avatar))
-                            .child(
-                                div()
-                                    .text_size(px(17.))
-                                    .text_color(ink)
-                                    .child("· BEAR 的今日日记 ·"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.5))
-                                    .text_color(accent)
-                                    .child(self.tagline),
-                            ),
+                            .id("paw")
+                            .cursor_pointer()
+                            .text_size(px(15.))
+                            .when(fetching, |this| this.opacity(0.35))
+                            .hover(|this| this.opacity(0.65))
+                            .active(|this| this.opacity(0.9))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
+                            .child("🐾"),
                     )
-                    // 元信息条
                     .child(
                         div()
-                            .flex()
-                            .justify_between()
-                            .px(px(4.))
-                            .py(px(5.))
-                            .border_b_1()
-                            .border_t_1()
-                            .border_color(line)
                             .text_size(px(11.))
                             .text_color(ink_soft)
-                            .child(format!("DATE {}", today_label()))
-                            .child(format!("WX {} {}", self.weather_line, self.icon)),
-                    )
-                    // 日记卡片
-                    .child(
-                        div()
-                            .flex_1()
-                            .bg(card)
-                            .rounded(px(6.))
-                            .border_1()
-                            .border_color(line)
-                            .p(px(14.))
-                            .id("diary-card")
-                            .overflow_y_scroll()
-                            .child(
-                                div()
-                                    .w_full()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(6.))
-                                    .child(
-                                        div()
-                                            .text_size(px(10.5))
-                                            .text_color(accent)
-                                            .child("今日日记"),
-                                    )
-                                    .child(
-                                        div().text_size(px(14.5)).line_height(relative(1.85)).child(
-                                            if still_typing {
-                                                format!("{typed}▌")
-                                            } else {
-                                                typed.clone()
-                                            },
-                                        ),
-                                    ),
-                            ),
-                    )
-                    // 刷新行
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child(
-                                div()
-                                    .id("refresh")
-                                    .cursor_pointer()
-                                    .px(px(12.))
-                                    .py(px(4.))
-                                    .rounded(px(4.))
-                                    .border_1()
-                                    .border_color(line)
-                                    .active(|this| this.opacity(0.7))
-                                    .hover(|this| this.bg(rgba(0xCDBFA244)))
-                                    .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
-                                    .text_size(px(12.))
-                                    .child("↻ 刷新"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.5))
-                                    .text_color(ink_soft)
-                                    .child(status_line),
-                            ),
-                    )
-                    // 小脚印
-                    .child(
-                        div()
-                            .flex()
-                            .justify_center()
-                            .gap(px(11.))
-                            .text_size(px(13.))
-                            .text_color(rgb(0xB7A989))
-                            .child("🐾")
-                            .child("🐾")
-                            .child("🐾")
-                            .child("🐾")
-                            .child("🐾"),
+                            .child(format!(
+                                "{} {}° · 第 {} 天",
+                                self.icon, self.temp, self.day_no
+                            )),
                     ),
             )
     }
@@ -479,10 +362,7 @@ fn main() {
                         status: Status::Idle,
                         avatar: "👧",
                         icon: "",
-                        mood: "",
-                        tagline: "一只叫 Bear 的女孩，每天醒来写一行字",
-                        weather_line: "--".into(),
-                        updated_at: None,
+                        temp: "--".into(),
                         full_text: "".into(),
                         typed_len: 0,
                         round: 0,
