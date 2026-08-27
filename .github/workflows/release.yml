@@ -23,7 +23,20 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Package
+      - name: Strip version from tag (v0.2.0 -> 0.2.0)
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV ("VER=" + "${{ github.ref_name }}".TrimStart("v"))
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build installer
+        shell: pwsh
+        run: >
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          "/DAppVersion=$env:VER" packaging/postbear.iss
+
+      - name: Package portable zip
         shell: pwsh
         run: >
           Compress-Archive
@@ -34,6 +47,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "${{ github.ref_name }}" "postbear-${{ github.ref_name }}-windows-x64.zip"
+          gh release create "${{ github.ref_name }}"
+          "postbear-${{ github.ref_name }}-windows-x64.zip"
+          "packaging/output/postbear-setup-$env:VER.exe"
           --title "postbear ${{ github.ref_name }}"
           --generate-notes

@@ -1,42 +1,61 @@
 # postbear — Bear 的桌角
 
-一只住在屏幕角落的 Bear：[bear 日记站](https://github.com/ykunyao/bear)的桌面伴侣应用。
-每天早上 8 点，GitHub Actions 在网页端更新 `data.json`，postbear 负责把它带到你的桌面上——当着你的面，逐字写完今天的日记。
+[![CI](https://github.com/ykunyao/postbear/actions/workflows/ci.yml/badge.svg)](https://github.com/ykunyao/postbear/actions/workflows/ci.yml)
 
-## 状态
+一张住在屏幕右下角的桌面便签。
 
-✅ **可运行 · v0.2 桌面贴纸形态**
+我的另一个项目 [bear 日记站](https://github.com/ykunyao/bear)每天早上 8 点由 GitHub Actions 自动更新当天的天气与一句话日记；postbear 把它带到你的桌面上——Bear 会当着你的面，把今天的话逐字写完。
 
-- 无边框圆角小卡 + 系统级模糊底（`WindowBackgroundAppearance::Blurred`），默认住在主屏右下角
-- 贴纸平时约 62% 淡化，鼠标靠近才完全显形——像便签而不是弹窗
-- 顶部抓取条按住即可整卡拖动；位置自动落盘到 `%APPDATA%\postbear\position.json`，下次启动原位复活
-- 启动不抢焦点（`focus: false` / `cx.activate(false)`）、尺寸固定不可拉伸
-- 数据拉取（域名 HTTPS 主通道 + Pages 回退）、打字机逐字动画（回合号取消机制）、↻ 手动刷新
+## 下载与运行
 
-| 里程碑 | 内容 |
-|---|---|
-| ~~MVP~~ | ✅ 窗口骨架 + 数据拉取 + 打字机动画 |
-| ~~V1.1a 贴纸化~~ | ✅ 无边框圆角 + 模糊底 + 右下安家 + 拖拽记位 + 淡化呼吸 |
-| V1.1b | 常驻置顶开关、新日记到达轮询重播动画 |
-| V2 | 托盘图标与信使模式、本地日记存档翻页、系统通知、打字机音效 |
+到 [Releases](https://github.com/ykunyao/postbear/releases) 页面下载 **Windows 10/11 x64** 版本，两种形态任选：
 
-## 技术栈
+| 文件 | 形态 | 用法 |
+|---|---|---|
+| `postbear-vX.Y.Z-windows-x64.zip` | 绿色便携版 | 解压后双击 `postbear.exe` 即用，删文件夹即卸载 |
+| `postbear-setup-vX.Y.Z.exe` | 安装器 | 下一步式安装：可选安装目录、桌面快捷方式、开机自启 |
 
-- **Rust** + [GPUI](https://github.com/zed-industries/zed)（Zed 编辑器的 GPU 加速 UI 框架）
-- 数据源：`https://ykunyao.github.io/bear/data.json`（公开数据契约，与网页版共享）
-- HTTP：`ureq`；序列化：`serde_json`
+> 两者是同一个程序的两种包装，二选一即可。若桌面上已有一只 Bear，先点便签右上角的 ✕ 关掉再启动新的。
 
-## 开发
+## 功能
 
-```bash
-dev.cmd run         # Windows 推荐入口：自动为本机不稳的 github HTTPS 改道 SSH 再调 cargo
-# 或直接：
-cargo run           # 构建运行；gpui 锁定在固定 rev，依赖进过缓存后无需网络
+- 📝 新日记送达时自动逐字书写，像有人在敲键盘
+- 😌 Bear 的表情随当天天气变化（晴😊 多云😌 雨😴 雪❄ 雾🌫 雷⛈）
+- ☁ 头顶气泡显示当前天气，底角落款温度与「第 N 天」
+- ✋ 按住卡片任意处拖动，位置自动记忆，下次原位复活
+- 📐 卡片高度随文字长度自动伸缩，像真正的手写便签
+- 🔇 启动不抢焦点，安安静静住在角落
+
+🐾 在底部左下角，点击它可手动刷新今天的日记。
+
+## 它是怎么工作的
+
+```
+GitHub Actions（每天 08:00 北京时间）
+    └─ 更新 bear 日记站的 data.json
+            └─ postbear 定时拉取 → 解析天气与文本 → 打字机动画呈现
 ```
 
-> gpui / gpui_platform 以 git rev 方式锁定 Zed 主干代码。若首次构建时拉取 github 超时，
-> 用 `dev.cmd` 替代 `cargo` 即可（原理见脚本内注释与 `.cargo/config.toml`）。
+数据双通道拉取（自定义域名 HTTPS + GitHub Pages 回退），网络失败时保持上一次的内容安静等待重试。
 
-技术备忘：gpui 在 edition 2024 下有保留关键字 `gen`（generator 预留）；`overflow_y_scroll()`
-等滚动方法只存在于带 `.id(...)` 的 Stateful 元素上；元素树要求内容 `'static`，借用 self 的
-数据需克隆为 owned 值。
+## 从源码构建
+
+依赖：Windows 10/11、Rust stable（MSVC 工具链）。
+
+```bash
+git clone https://github.com/ykunyao/postbear.git
+cd postbear
+dev.cmd run        # 推荐入口：编译并运行
+dev.cmd build      # 仅编译
+```
+
+技术栈：[Rust](https://www.rust-lang.org/) + [GPUI](https://github.com/zed-industries/zed)（Zed 编辑器的 GPU 加速 UI 框架，锁定 rev 保证可复现构建）/ ureq / serde。
+
+> `dev.cmd` 是本仓库的开发包装脚本：国内网络直连 github.com 拉 git 依赖时常超时，它会临时改道 SSH 后再调用 cargo。云端 CI 不需要它。
+
+## CI / 发布
+
+- push 到 main：自动跑格式检查 + 编译 + clippy（零警告门槛）
+- 推送 `v*` 标签：自动构建绿色版 zip 与安装器并发布到 Releases
+
+发个新版只要三行：改 `Cargo.toml` 版本号 → `git tag vX.Y.Z` → `git push origin vX.Y.Z`。
