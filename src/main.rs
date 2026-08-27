@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::*, px, relative, rgb, rgba, point, size, App, Bounds, Context, MouseButton,
-    Pixels, Render, SharedString, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowControlArea, WindowOptions,
+    App, Bounds, Context, MouseButton, Pixels, Render, SharedString, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, div, point,
+    prelude::*, px, relative, rgb, rgba, size,
 };
 use gpui_platform::application;
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,11 @@ fn state_path() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("HOME"))
         .map(|base| {
             PathBuf::from(base)
-                .join(if cfg!(windows) { "postbear" } else { ".postbear" })
+                .join(if cfg!(windows) {
+                    "postbear"
+                } else {
+                    ".postbear"
+                })
                 .join("position.json")
         })
 }
@@ -160,7 +164,7 @@ fn estimate_lines(text: &str) -> f32 {
             width += 7.6;
         }
     }
-    (width / INNER_W).ceil().max(1.).min(12.)
+    (width / INNER_W).ceil().clamp(1., 12.)
 }
 
 /// header(头像行) + pt6 + n×15px 行高 1.85 + footer + 缓冲
@@ -197,24 +201,26 @@ impl BearState {
         self.typed_len = 0;
         cx.notify();
 
-        cx.spawn(async move |this, cx| loop {
-            let continue_typing = this
-                .update(cx, |state, cx| {
-                    if state.round != round {
-                        return false; // 已被新一轮顶替
-                    }
-                    let total = state.full_text.chars().count();
-                    state.typed_len = usize::min(state.typed_len + 1, total);
-                    cx.notify();
-                    state.typed_len < total
-                })
-                .unwrap_or(false);
-            if !continue_typing {
-                break;
+        cx.spawn(async move |this, cx| {
+            loop {
+                let continue_typing = this
+                    .update(cx, |state, cx| {
+                        if state.round != round {
+                            return false; // 已被新一轮顶替
+                        }
+                        let total = state.full_text.chars().count();
+                        state.typed_len = usize::min(state.typed_len + 1, total);
+                        cx.notify();
+                        state.typed_len < total
+                    })
+                    .unwrap_or(false);
+                if !continue_typing {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(45))
+                    .await;
             }
-            cx.background_executor()
-                .timer(Duration::from_millis(45))
-                .await;
         })
         .detach();
     }
@@ -345,15 +351,10 @@ impl Render for BearState {
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
                             .child("🐾"),
                     )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(ink_soft)
-                            .child(format!(
-                                "{} {}° · 第 {} 天",
-                                self.icon, self.temp, self.day_no
-                            )),
-                    ),
+                    .child(div().text_size(px(11.)).text_color(ink_soft).child(format!(
+                        "{} {}° · 第 {} 天",
+                        self.icon, self.temp, self.day_no
+                    ))),
             )
     }
 }
