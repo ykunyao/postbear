@@ -1,0 +1,13 @@
+# Rust
+/target/
+Cargo.lock.orig
+
+# Build artifacts of examples
+*.exe
+*.pdb
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
