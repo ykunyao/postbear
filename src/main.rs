@@ -12,10 +12,11 @@ use gpui::{
 use gpui_platform::application;
 use serde::Deserialize;
 
-/// 数据源：先试 GitHub Pages（HTTPS），失败回退自定义域名直连（仅 HTTP）
+/// 数据源：自定义域名 HTTPS 为主（Pages 会 301 到它），GitHub Pages 作回退。
+/// 域名若未开 Enforce HTTPS，Pages 的跳转目标仍是 http:// 但不影响本表——两个都直连可达。
 const DATA_URLS: [&str; 2] = [
+    "https://woaiwo.xyz/bear/data.json",
     "https://ykunyao.github.io/bear/data.json",
-    "http://woaiwo.xyz/bear/data.json",
 ];
 
 /// bear 日记站的上线日（2026-08-26，见 ykunyao/bear 的 index.html）

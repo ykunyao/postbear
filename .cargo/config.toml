@@ -1,4 +1,5 @@
-# 只保留 CLI 抓取开关；github.com 的 SSH 地址重写在 dev.cmd 中通过进程环境变量完成，
-# 因为 cargo 的 [env] 表不会注入到它自己执行网络抓取的子进程里。
+# 本机对 github.com 的 HTTPS 连接时好时坏。git 抓取改走命令行 git；
+# 至今（2026-08-27 实测两次）cargo [env] 表都注入不到它自己的抓取子进程，
+# 所以 SSH 地址重写放在 dev.cmd 里用进程环境变量完成。
 [net]
 git-fetch-with-cli = true
