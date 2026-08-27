@@ -25,7 +25,7 @@ const DATA_URLS: [&str; 2] = [
 const LAUNCH_DATE: (i32, u32, u32) = (2026, 8, 26);
 
 /// 贴纸尺寸与右下角边距
-const CARD_SIZE: (f32, f32) = (340., 430.);
+const CARD_SIZE: (f32, f32) = (300., 380.);
 const SCREEN_MARGIN: f32 = 32.;
 
 #[derive(Debug, Deserialize)]
@@ -224,8 +224,8 @@ impl Render for BearState {
         let still_typing = self.typed_len < self.full_text.chars().count();
         let fetching = matches!(self.status, Status::Fetching);
 
-        // 米黄纸 + 半透明贴纸质感（背景为系统级模糊）
-        let paper = rgba(0xF3EBD8E6); // 约 90% 不透明度
+        // 米黄纸 + 恒定观感：不做悬停变色，透明度固定避免突变
+        let paper = rgba(0xF3EBD8F7);
         let ink = rgb(0x3D3528);
         let ink_soft = rgb(0x6E6350);
         let line = rgb(0xCDBFA2);
@@ -235,15 +235,12 @@ impl Render for BearState {
             .flex_col()
             .size_full()
             .overflow_hidden()
-            .rounded(px(16.))
+            .rounded(px(12.))
             .border_1()
             .border_color(line)
             .bg(paper)
             .text_color(ink)
-            .shadow_lg()
-            // 贴纸的呼吸：平时半透明，靠近才完全显形
-            .opacity(0.66)
-            .hover(|this| this.opacity(1.0))
+            .shadow_md()
             // 整卡皆是拖拽热区；下方两个小按钮会各自拦住冒泡
             .on_mouse_down(
                 MouseButton::Left,
@@ -255,10 +252,10 @@ impl Render for BearState {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .pl(px(18.))
-                    .pr(px(12.))
-                    .pt(px(12.))
-                    .child(div().text_size(px(30.)).child(self.avatar))
+                    .pl(px(14.))
+                    .pr(px(8.))
+                    .pt(px(8.))
+                    .child(div().text_size(px(26.)).child(self.avatar))
                     .child(
                         div()
                             .id("close")
@@ -273,17 +270,21 @@ impl Render for BearState {
                             .child("✕"),
                     ),
             )
-            // 正文：今天的日记是唯一的主角，垂直居中
+            // 正文：今天的日记是唯一的主角，垂直居中；整段可拖
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .items_center()
-                    .px(px(24.))
+                    .px(px(16.))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|_, _, window, _| window.start_window_move()),
+                    )
                     .child(
                         div()
-                            .text_size(px(15.5))
-                            .line_height(relative(1.95))
+                            .text_size(px(15.))
+                            .line_height(relative(1.85))
                             .text_color(ink)
                             .child(if still_typing {
                                 format!("{typed}▌")
@@ -292,14 +293,18 @@ impl Render for BearState {
                             }),
                     ),
             )
-            // 底行：左脚印=刷新入口，右天气温度与天数
+            // 底行：左脚印=刷新入口，右天气温度与天数；整行亦可拖
             .child(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px(px(20.))
-                    .pb(px(14.))
+                    .px(px(14.))
+                    .pb(px(10.))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|_, _, window, _| window.start_window_move()),
+                    )
                     .child(
                         div()
                             .id("paw")
