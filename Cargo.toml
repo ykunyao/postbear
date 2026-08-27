@@ -1,6 +1,6 @@
 [package]
 name = "postbear"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Bear 的桌角 —— bear 日记站的桌面伴侣（Rust + GPUI）"
 
@@ -11,3 +11,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = "2"
 chrono = "0.4"
+
+[build-dependencies]
+winresource = "0.1"

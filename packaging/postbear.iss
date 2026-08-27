@@ -15,6 +15,7 @@ OutputDir=output
 Compression=lzma2
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\postbear.exe
+SetupIconFile=..\assets\postbear.ico
 
 [Languages]
 Name: "chinese"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
