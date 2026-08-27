@@ -144,6 +144,30 @@ enum Status {
     Fetching,
 }
 
+/// 由全文估算正文行数，进而推卡片高度（内容决定高度）。
+/// CJK 字宽 ≈ 字号，ASCII ≈ 半个字号；误差用缓冲兜住。
+fn estimate_lines(text: &str) -> f32 {
+    const INNER_W: f32 = CARD_SIZE.0 - 32.; // px(16) 左右内边距
+    let mut width = 0.;
+    for ch in text.chars() {
+        let code = ch as u32;
+        if ch == '\n' {
+            width += INNER_W;
+        } else if code >= 0x2E80 {
+            // CJK 及全角区
+            width += 15.;
+        } else {
+            width += 7.6;
+        }
+    }
+    (width / INNER_W).ceil().max(1.).min(12.)
+}
+
+/// header(头像行) + pt6 + n×15px 行高 1.85 + footer + 缓冲
+fn card_height_for(text: &str) -> f32 {
+    (120. + 32. * estimate_lines(text)).clamp(160., 480.)
+}
+
 struct BearState {
     day_no: i64,
     status: Status,
@@ -156,6 +180,10 @@ struct BearState {
     full_text: SharedString,
     typed_len: usize,
     round: u64,
+
+    // 动态高度：期望值随文本变化，render 时应用到窗口
+    desired_h: f32,
+    applied_h: Option<f32>,
 
     // 拖动位置的节流落盘
     last_bounds_save: Instant,
@@ -204,6 +232,7 @@ impl BearState {
                     state.avatar = avatar;
                     state.icon = icon;
                     state.temp = SharedString::from(data.temp);
+                    state.desired_h = card_height_for(&data.text);
                     state.apply_text(data.text, cx);
                 }
                 state.status = Status::Idle;
@@ -220,7 +249,13 @@ impl BearState {
 }
 
 impl Render for BearState {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 内容决定高度：期望高度变化时，在帧首应用一次窗口尺寸
+        if self.applied_h != Some(self.desired_h) {
+            self.applied_h = Some(self.desired_h);
+            window.resize(size(px(CARD_SIZE.0), px(self.desired_h)));
+        }
+
         let typed: String = self.full_text.chars().take(self.typed_len).collect();
         let still_typing = self.typed_len < self.full_text.chars().count();
         let fetching = matches!(self.status, Status::Fetching);
@@ -327,12 +362,14 @@ fn main() {
     application().run(|cx: &mut App| {
         let display = cx.primary_display().map(|d| d.bounds());
         let origin = initial_origin(display);
+        // 启动即按占位文本给高度，避免开窗后跳变
+        let initial_h = card_height_for("Bear 正在被 Actions 叫醒……");
 
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin,
-                    size: size(px(CARD_SIZE.0), px(CARD_SIZE.1)),
+                    size: size(px(CARD_SIZE.0), px(initial_h)),
                 })),
                 titlebar: None,
                 focus: false,
@@ -364,6 +401,8 @@ fn main() {
                         full_text: "".into(),
                         typed_len: 0,
                         round: 0,
+                        desired_h: initial_h,
+                        applied_h: None,
                         last_bounds_save: Instant::now(),
                     };
                     state.begin_typing("Bear 正在被 Actions 叫醒……", cx);
