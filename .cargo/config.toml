@@ -1,0 +1,4 @@
+# 只保留 CLI 抓取开关；github.com 的 SSH 地址重写在 dev.cmd 中通过进程环境变量完成，
+# 因为 cargo 的 [env] 表不会注入到它自己执行网络抓取的子进程里。
+[net]
+git-fetch-with-cli = true

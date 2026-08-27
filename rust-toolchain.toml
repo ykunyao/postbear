@@ -1,0 +1,3 @@
+# 与 Zed 工作区保持同一编译器版本；该工具链已在本机 rustup 缓存中
+[toolchain]
+channel = "1.97.1"
