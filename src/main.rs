@@ -1,7 +1,7 @@
-//! postbear —— Bear 的桌角（桌面贴纸形态）
+//! postbear —— Bear 的桌角（桌面宠物形态）
 //!
-//! 一张住在屏幕右下角的便签： Bear 的表情 + 今天的一句话，仅此而已。
-//! 按住卡片任意空白处即可拖动；点小脚印刷新；位置自动记忆。
+//! 一个悬浮在屏幕右下角的小家伙：大白脸上下呼吸蹦跳，头顶飘着天气小气泡，
+//! 脚下两只爪印交替踏步。按住任意处拖动；点左爪刷新；无任何文字。
 //! 运行：`cargo run`（或 Windows 下 `dev.cmd run`）
 
 use std::fs;
@@ -9,8 +9,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::*, px, relative, rgb, rgba, point, size, App, Bounds, Context, MouseButton,
-    Pixels, Render, SharedString, Window, WindowBackgroundAppearance, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, rgba, size, Animation, AnimationExt as _, App, Bounds, Context,
+    MouseButton, Pixels, Render, Window, WindowBackgroundAppearance, WindowBounds, WindowKind,
+    WindowOptions, bounce, ease_in_out,
 };
 use gpui_platform::application;
 use serde::{Deserialize, Serialize};
@@ -21,19 +22,14 @@ const DATA_URLS: [&str; 2] = [
     "https://ykunyao.github.io/bear/data.json",
 ];
 
-/// bear 日记站的上线日（2026-08-26，见 ykunyao/bear 的 index.html）
-const LAUNCH_DATE: (i32, u32, u32) = (2026, 8, 26);
-
-/// 贴纸尺寸与右下角边距
-const CARD_SIZE: (f32, f32) = (340., 430.);
-const SCREEN_MARGIN: f32 = 32.;
+/// 宠物活动区尺寸与右下角边距
+const PET_SIZE: (f32, f32) = (150., 200.);
+const SCREEN_MARGIN: f32 = 36.;
 
 #[derive(Debug, Deserialize)]
 struct DiaryData {
     weather: String,
-    temp: String,
-    text: String,
-    // data.json 里还有 updated_at，贴纸 UI 用不到，交给 serde 忽略
+    // data.json 的其余字段（temp/text/updated_at）宠物 UI 不展示，交给 serde 忽略
 }
 
 // ---------- 位置持久化 ----------
@@ -71,8 +67,8 @@ fn save_origin(origin: &SavedOrigin) {
 
 /// 初始窗口原点：优先用上次保存的位置；首次运行放主屏右下角；保存值落出屏幕则回默认。
 fn initial_origin(display: Option<Bounds<Pixels>>) -> gpui::Point<Pixels> {
-    let sw = px(CARD_SIZE.0);
-    let sh = px(CARD_SIZE.1);
+    let sw = px(PET_SIZE.0);
+    let sh = px(PET_SIZE.1);
 
     if let Some(saved) = load_origin() {
         let sx = px(saved.x as f32);
@@ -83,15 +79,15 @@ fn initial_origin(display: Option<Bounds<Pixels>>) -> gpui::Point<Pixels> {
             let min_y = db.origin.y - sh + px(80.);
             let max_y = db.origin.y + db.size.height - px(80.);
             if sx > min_x && sx < max_x && sy > min_y && sy < max_y {
-                return point(sx, sy);
+                return gpui::point(sx, sy);
             }
         }
     }
 
     let Some(db) = display else {
-        return point(px(100.), px(100.));
+        return gpui::point(px(100.), px(100.));
     };
-    point(
+    gpui::point(
         db.origin.x + db.size.width - sw - px(SCREEN_MARGIN),
         db.origin.y + db.size.height - sh - px(SCREEN_MARGIN),
     )
@@ -111,7 +107,7 @@ fn weather_display(weather: &str) -> (&'static str, &'static str) {
     }
 }
 
-fn fetch_diary() -> Result<DiaryData, String> {
+fn fetch_diary_weather() -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(10))
         .build();
@@ -120,7 +116,7 @@ fn fetch_diary() -> Result<DiaryData, String> {
         match agent.get(url).call() {
             Ok(resp) => match resp.into_string() {
                 Ok(body) => match serde_json::from_str::<DiaryData>(&body) {
-                    Ok(data) => return Ok(data),
+                    Ok(data) => return Ok(data.weather),
                     Err(e) => last_err = format!("parse {url}: {e}"),
                 },
                 Err(e) => last_err = format!("read {url}: {e}"),
@@ -131,79 +127,32 @@ fn fetch_diary() -> Result<DiaryData, String> {
     Err(last_err)
 }
 
-fn day_number() -> i64 {
-    let launch = chrono::NaiveDate::from_ymd_opt(LAUNCH_DATE.0, LAUNCH_DATE.1, LAUNCH_DATE.2)
-        .expect("valid launch date");
-    let today = chrono::Local::now().date_naive();
-    (today - launch).num_days().max(0)
-}
-
 enum Status {
     Idle,
     Fetching,
 }
 
 struct BearState {
-    day_no: i64,
     status: Status,
-
     avatar: &'static str,
-    icon: &'static str,
-    temp: SharedString,
-
-    // 打字机：round 是回合号，旧动画发现自己过期就自动退场
-    full_text: SharedString,
-    typed_len: usize,
-    round: u64,
-
-    // 拖动位置的节流落盘
+    weather_icon: &'static str,
     last_bounds_save: Instant,
 }
 
 impl BearState {
-    fn begin_typing(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.round += 1;
-        let round = self.round;
-        self.full_text = text.into();
-        self.typed_len = 0;
-        cx.notify();
-
-        cx.spawn(async move |this, cx| loop {
-            let continue_typing = this
-                .update(cx, |state, cx| {
-                    if state.round != round {
-                        return false; // 已被新一轮顶替
-                    }
-                    let total = state.full_text.chars().count();
-                    state.typed_len = usize::min(state.typed_len + 1, total);
-                    cx.notify();
-                    state.typed_len < total
-                })
-                .unwrap_or(false);
-            if !continue_typing {
-                break;
-            }
-            cx.background_executor()
-                .timer(Duration::from_millis(45))
-                .await;
-        })
-        .detach();
-    }
-
     fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.round += 1; // 作废进行中的打字动画
         self.status = Status::Fetching;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { fetch_diary() }).await;
+            let result = cx
+                .background_spawn(async move { fetch_diary_weather() })
+                .await;
             let _ = this.update(cx, |state, cx| {
-                if let Ok(data) = result {
-                    let (avatar, icon) = weather_display(&data.weather);
+                if let Ok(weather) = result {
+                    let (avatar, icon) = weather_display(&weather);
                     state.avatar = avatar;
-                    state.icon = icon;
-                    state.temp = SharedString::from(data.temp);
-                    state.apply_text(data.text, cx);
+                    state.weather_icon = icon;
                 }
                 state.status = Status::Idle;
                 cx.notify();
@@ -211,118 +160,144 @@ impl BearState {
         })
         .detach();
     }
-
-    fn apply_text(&mut self, text: String, cx: &mut Context<Self>) {
-        cx.notify();
-        self.begin_typing(text, cx);
-    }
 }
 
 impl Render for BearState {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let typed: String = self.full_text.chars().take(self.typed_len).collect();
-        let still_typing = self.typed_len < self.full_text.chars().count();
         let fetching = matches!(self.status, Status::Fetching);
 
-        // 米黄纸 + 半透明贴纸质感（背景为系统级模糊）
-        let paper = rgba(0xF3EBD8E6); // 约 90% 不透明度
-        let ink = rgb(0x3D3528);
-        let ink_soft = rgb(0x6E6350);
-        let line = rgb(0xCDBFA2);
-
         div()
+            .relative()
             .flex()
             .flex_col()
+            .items_center()
             .size_full()
-            .overflow_hidden()
-            .rounded(px(16.))
-            .border_1()
-            .border_color(line)
-            .bg(paper)
-            .text_color(ink)
-            .shadow_lg()
-            // 贴纸的呼吸：平时半透明，靠近才完全显形
-            .opacity(0.66)
-            .hover(|this| this.opacity(1.0))
-            // 整卡皆是拖拽热区；下方两个小按钮会各自拦住冒泡
+            // 整个活动区皆可拖动；小按钮各自拦住冒泡
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|_, _, window, _| window.start_window_move()),
             )
-            // 顶行：表情即门面，右侧一枚极轻的关闭钮
+            // 头部：大脸呼吸蹦跳，右上角天气气泡
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .pl(px(18.))
-                    .pr(px(12.))
-                    .pt(px(12.))
-                    .child(div().text_size(px(30.)).child(self.avatar))
+                    .relative()
+                    .mt(px(24.))
+                    .w(px(96.))
+                    .h(px(86.))
+                    // 天气气泡徽章
                     .child(
                         div()
-                            .id("close")
-                            .cursor_pointer()
-                            .px(px(6.))
-                            .rounded(px(4.))
-                            .text_size(px(13.))
-                            .text_color(rgb(0xB7A989))
-                            .hover(|this| this.text_color(rgb(0xB0432E)))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|_, _, window, _| window.remove_window()))
-                            .child("✕"),
-                    ),
-            )
-            // 正文：今天的日记是唯一的主角，垂直居中
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .px(px(24.))
-                    .child(
-                        div()
-                            .text_size(px(15.5))
-                            .line_height(relative(1.95))
-                            .text_color(ink)
-                            .child(if still_typing {
-                                format!("{typed}▌")
-                            } else {
-                                typed.clone()
-                            }),
-                    ),
-            )
-            // 底行：左脚印=刷新入口，右天气温度与天数
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px(px(20.))
-                    .pb(px(14.))
-                    .child(
-                        div()
-                            .id("paw")
-                            .cursor_pointer()
-                            .text_size(px(15.))
+                            .absolute()
+                            .top(px(0.))
+                            .right(px(0.))
+                            .size(px(28.))
+                            .rounded_full()
+                            .bg(rgba(0xFFFFFFC8))
+                            .border_1()
+                            .border_color(rgb(0xCDBFA2))
                             .when(fetching, |this| this.opacity(0.35))
-                            .hover(|this| this.opacity(0.65))
-                            .active(|this| this.opacity(0.9))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
-                            .child("🐾"),
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(14.))
+                            .text_color(rgb(0x6E6350))
+                            .child(self.weather_icon),
                     )
+                    // 大脸：以 bounce 缓动循环起伏
                     .child(
                         div()
-                            .text_size(px(11.))
-                            .text_color(ink_soft)
-                            .child(format!(
-                                "{} {}° · 第 {} 天",
-                                self.icon, self.temp, self.day_no
-                            )),
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .text_size(px(62.))
+                                    .line_height(px(76.))
+                                    .child(self.avatar)
+                                    .with_animation(
+                                        "pet-bob",
+                                        Animation::new(Duration::from_millis(2200))
+                                            .repeat()
+                                            .with_easing(bounce(ease_in_out)),
+                                        |face, delta| face.top(px(-8. * delta)),
+                                    ),
+                            ),
                     ),
+            )
+            // 弹性空隙把爪印压到底部
+            .child(div().flex_1())
+            // 脚下：两只交替踏步的爪印；左爪兼任刷新
+            .child(
+                div()
+                    .flex()
+                    .items_end()
+                    .gap(px(16.))
+                    .pb(px(16.))
+                    .child(paw("paw-a", "paw-hop-a", 1400, fetching, true, cx))
+                    .child(paw("paw-b", "paw-hop-b", 1700, false, false, cx)),
+            )
+            // 隐蔽的退出点：右下角一枚极淡的小叉
+            .child(
+                div()
+                    .id("quit")
+                    .absolute()
+                    .bottom(px(2.))
+                    .right(px(5.))
+                    .cursor_pointer()
+                    .opacity(0.22)
+                    .hover(|this| this.opacity(0.9))
+                    .text_size(px(11.))
+                    .text_color(rgb(0xB7A989))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|_, _, window, _| window.remove_window()))
+                    .child("✕"),
             )
     }
+}
+
+/// 一只原地踏步的爪印。interactive 时点击触发刷新。
+fn paw(
+    hit_id: &'static str,
+    anim_id: &'static str,
+    period_ms: u64,
+    dimmed: bool,
+    interactive: bool,
+    cx: &mut Context<BearState>,
+) -> impl IntoElement {
+    div()
+        .id(hit_id)
+        .relative()
+        .w(px(26.))
+        .h(px(22.))
+        .when(dimmed, |this| this.opacity(0.45))
+        .when(interactive, |this| {
+            this.cursor_pointer()
+                .hover(|this| this.opacity(0.75))
+                .active(|this| this.opacity(1.0))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
+        })
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .justify_center()
+                .items_end()
+                .child(
+                    div()
+                        .text_size(px(17.))
+                        .child("🐾")
+                        .with_animation(
+                            anim_id,
+                            Animation::new(Duration::from_millis(period_ms))
+                                .repeat()
+                                .with_easing(bounce(ease_in_out)),
+                            |paw_el, delta| paw_el.top(px(-5. * delta)),
+                        ),
+                ),
+        )
 }
 
 fn main() {
@@ -334,15 +309,16 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin,
-                    size: size(px(CARD_SIZE.0), px(CARD_SIZE.1)),
+                    size: size(px(PET_SIZE.0), px(PET_SIZE.1)),
                 })),
                 titlebar: None,
                 focus: false,
                 is_resizable: false,
+                kind: WindowKind::PopUp, // Windows 上即 WS_EX_TOOLWINDOW|TOPMOST：无任务栏图标、恒在顶层
                 ..Default::default()
             },
             |window, cx| {
-                window.set_background_appearance(WindowBackgroundAppearance::Blurred);
+                window.set_background_appearance(WindowBackgroundAppearance::Transparent);
                 cx.new(|cx| {
                     // 窗口尺寸固定，bounds 变化即用户拖动：节流落盘新位置
                     cx.observe_window_bounds(window, |state: &mut BearState, window, _| {
@@ -357,24 +333,17 @@ fn main() {
                     })
                     .detach();
 
-                    let mut state = BearState {
-                        day_no: day_number(),
+                    let (_avatar, icon) = weather_display("");
+                    BearState {
                         status: Status::Idle,
                         avatar: "👧",
-                        icon: "",
-                        temp: "--".into(),
-                        full_text: "".into(),
-                        typed_len: 0,
-                        round: 0,
+                        weather_icon: icon,
                         last_bounds_save: Instant::now(),
-                    };
-                    state.begin_typing("Bear 正在被 Actions 叫醒……", cx);
-                    state.refresh(cx);
-                    state
+                    }
                 })
             },
         )
         .unwrap();
-        cx.activate(false); // 贴纸不打扰：启动不抢焦点
+        cx.activate(false); // 宠物不打扰：启动不抢焦点
     });
 }
