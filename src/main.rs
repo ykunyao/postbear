@@ -26,7 +26,7 @@ const DATA_URLS: [&str; 2] = [
 const LAUNCH_DATE: (i32, u32, u32) = (2026, 8, 26);
 
 /// 贴纸尺寸与右下角边距
-const CARD_SIZE: (f32, f32) = (300., 340.);
+const CARD_SIZE: (f32, f32) = (300., 300.);
 const SCREEN_MARGIN: f32 = 32.;
 
 #[derive(Debug, Deserialize)]
@@ -268,13 +268,12 @@ impl Render for BearState {
                             .child("✕"),
                     ),
             )
-            // 正文：今天的日记是唯一的主角，垂直居中；整段可拖
+            // 正文：紧跟头像起笔，像便签一样自上而下书写；剩余空间全部沉底
             .child(
                 div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
+                    .w_full()
                     .px(px(16.))
+                    .pt(px(6.))
                     .child(
                         div()
                             .w_full()
@@ -288,6 +287,8 @@ impl Render for BearState {
                             }),
                     ),
             )
+            // 全部富余空间都归这里，把底行压到卡片下缘
+            .child(div().flex_1())
             // 底行：左脚印=刷新入口，右天气温度与天数
             .child(
                 div()
