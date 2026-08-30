@@ -4,17 +4,36 @@
 //! 按住卡片任意空白处即可拖动；点小脚印刷新；位置自动记忆。
 //! 运行：`cargo run`（或 Windows 下 `dev.cmd run`）
 
+use std::borrow::Cow;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, Bounds, Context, MouseButton, Pixels, Render, SharedString, Window,
+    App, AssetSource, Bounds, Context, MouseButton, Pixels, Render, SharedString, Window,
     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, div, point,
-    prelude::*, px, relative, rgb, rgba, size,
+    prelude::*, px, relative, rgb, rgba, size, svg,
 };
 use gpui_platform::application;
 use serde::{Deserialize, Serialize};
+
+/// 内嵌资源：爪印与网页版同款 SVG，编译期打进 exe
+struct Assets;
+
+impl AssetSource for Assets {
+    fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {
+        let bytes: &[u8] = match path {
+            "paw.svg" => include_bytes!("../assets/paw.svg"),
+            _ => return Ok(None),
+        };
+        Ok(Some(Cow::Borrowed(bytes)))
+    }
+
+    fn list(&self, path: &str) -> anyhow::Result<Vec<SharedString>> {
+        let _ = path;
+        Ok(Vec::new())
+    }
+}
 
 /// 数据源：自定义域名 HTTPS 为主，GitHub Pages 作回退。
 const DATA_URLS: [&str; 2] = [
@@ -104,15 +123,15 @@ fn initial_origin(display: Option<Bounds<Pixels>>) -> gpui::Point<Pixels> {
 
 // ---------- 数据 ----------
 
-fn weather_icon(weather: &str) -> &'static str {
+fn weather_name(weather: &str) -> &'static str {
     match weather {
-        "sunny" => "☀",
-        "cloudy" => "☁",
-        "rain" => "☂",
-        "snow" => "❅",
-        "fog" => "≈",
-        "thunder" => "⚡",
-        _ => "",
+        "sunny" => "晴",
+        "cloudy" => "多云",
+        "rain" => "雨",
+        "snow" => "雪",
+        "fog" => "雾",
+        "thunder" => "雷雨",
+        _ => "—",
     }
 }
 
@@ -140,7 +159,8 @@ fn day_number() -> i64 {
     let launch = chrono::NaiveDate::from_ymd_opt(LAUNCH_DATE.0, LAUNCH_DATE.1, LAUNCH_DATE.2)
         .expect("valid launch date");
     let today = chrono::Local::now().date_naive();
-    (today - launch).num_days().max(0)
+    // 上线当天即第 1 天，与网页版口径一致
+    (today - launch).num_days().max(0) + 1
 }
 
 enum Status {
@@ -176,7 +196,7 @@ struct BearState {
     day_no: i64,
     status: Status,
 
-    icon: &'static str,
+    weather_name: &'static str,
     temp: SharedString,
 
     // 打字机：round 是回合号，旧动画发现自己过期就自动退场
@@ -233,7 +253,7 @@ impl BearState {
             let result = cx.background_spawn(async move { fetch_diary() }).await;
             let _ = this.update(cx, |state, cx| {
                 if let Ok(data) = result {
-                    state.icon = weather_icon(&data.weather);
+                    state.weather_name = weather_name(&data.weather);
                     state.temp = SharedString::from(data.temp);
                     state.desired_h = card_height_for(&data.text);
                     state.apply_text(data.text, cx);
@@ -361,24 +381,30 @@ impl Render for BearState {
                         div()
                             .id("paw")
                             .cursor_pointer()
-                            .text_size(px(15.))
+                            .p(px(2.))
                             .when(fetching, |this| this.opacity(0.35))
                             .hover(|this| this.opacity(0.65))
                             .active(|this| this.opacity(0.9))
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
-                            .child("🐾"),
+                            .child(
+                                svg()
+                                    .w(px(17.))
+                                    .h(px(14.))
+                                    .path("paw.svg")
+                                    .text_color(rgb(0x8A7C63)),
+                            ),
                     )
                     .child(div().text_size(px(11.)).text_color(ink_soft).child(format!(
                         "{} {}° · 第 {} 天",
-                        self.icon, self.temp, self.day_no
+                        self.weather_name, self.temp, self.day_no
                     ))),
             )
     }
 }
 
 fn main() {
-    application().run(|cx: &mut App| {
+    application().with_assets(Assets).run(|cx: &mut App| {
         let display = cx.primary_display().map(|d| d.bounds());
         let origin = initial_origin(display);
         // 启动即按占位文本给高度，避免开窗后跳变
@@ -415,7 +441,7 @@ fn main() {
                     let mut state = BearState {
                         day_no: day_number(),
                         status: Status::Idle,
-                        icon: "",
+                        weather_name: "—",
                         temp: "--".into(),
                         full_text: "".into(),
                         typed_len: 0,

@@ -2,7 +2,7 @@
 name = "postbear"
 version = "0.2.1"
 edition = "2024"
-description = "Bear 的桌角 —— bear 日记站的桌面伴侣（Rust + GPUI）"
+description = "bear 日记站的 Windows 桌面客户端（Rust + GPUI）"
 
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8" }
@@ -11,6 +11,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = "2"
 chrono = "0.4"
+anyhow = "1"
 
 [build-dependencies]
 winresource = "0.1"
