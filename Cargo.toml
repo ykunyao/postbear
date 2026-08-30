@@ -1,6 +1,6 @@
 [package]
 name = "postbear"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "bear 日记站的 Windows 桌面客户端（Rust + GPUI）"
 
