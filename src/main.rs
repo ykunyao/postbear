@@ -1,6 +1,6 @@
-//! postbear —— Bear 的桌角（桌面贴纸形态）
+//! postbear —— 熊的桌角（桌面贴纸形态）
 //!
-//! 一张住在屏幕右下角的便签： Bear 的表情 + 今天的一句话，仅此而已。
+//! 一张住在屏幕右下角的便签：一枚熊印 + 今天的一句话，仅此而已。
 //! 按住卡片任意空白处即可拖动；点小脚印刷新；位置自动记忆。
 //! 运行：`cargo run`（或 Windows 下 `dev.cmd run`）
 
@@ -104,15 +104,15 @@ fn initial_origin(display: Option<Bounds<Pixels>>) -> gpui::Point<Pixels> {
 
 // ---------- 数据 ----------
 
-fn weather_display(weather: &str) -> (&'static str, &'static str) {
+fn weather_icon(weather: &str) -> &'static str {
     match weather {
-        "sunny" => ("😊", "☀"),
-        "cloudy" => ("😌", "☁"),
-        "rain" => ("😴", "☂"),
-        "snow" => ("❄", "❅"),
-        "fog" => ("🌫", "≈"),
-        "thunder" => ("⛈", "⚡"),
-        _ => ("👧", ""),
+        "sunny" => "☀",
+        "cloudy" => "☁",
+        "rain" => "☂",
+        "snow" => "❅",
+        "fog" => "≈",
+        "thunder" => "⚡",
+        _ => "",
     }
 }
 
@@ -167,16 +167,15 @@ fn estimate_lines(text: &str) -> f32 {
     (width / INNER_W).ceil().clamp(1., 12.)
 }
 
-/// header(头像行) + pt6 + n×15px 行高 1.85 + footer + 缓冲
+/// header(印章区) + pt6 + n×15px 行高 1.85 + footer + 缓冲
 fn card_height_for(text: &str) -> f32 {
-    (120. + 32. * estimate_lines(text)).clamp(160., 480.)
+    (154. + 32. * estimate_lines(text)).clamp(200., 480.)
 }
 
 struct BearState {
     day_no: i64,
     status: Status,
 
-    avatar: &'static str,
     icon: &'static str,
     temp: SharedString,
 
@@ -234,9 +233,7 @@ impl BearState {
             let result = cx.background_spawn(async move { fetch_diary() }).await;
             let _ = this.update(cx, |state, cx| {
                 if let Ok(data) = result {
-                    let (avatar, icon) = weather_display(&data.weather);
-                    state.avatar = avatar;
-                    state.icon = icon;
+                    state.icon = weather_icon(&data.weather);
                     state.temp = SharedString::from(data.temp);
                     state.desired_h = card_height_for(&data.text);
                     state.apply_text(data.text, cx);
@@ -273,6 +270,7 @@ impl Render for BearState {
         let line = rgb(0xCDBFA2);
 
         div()
+            .relative()
             .flex()
             .flex_col()
             .size_full()
@@ -285,28 +283,52 @@ impl Render for BearState {
             .shadow_md()
             // 原生标题栏热区：按住卡上任何非按钮处交给系统拖动
             .window_control_area(WindowControlArea::Drag)
-            // 顶行：表情即门面，右侧一枚极轻的关闭钮
+            // 隐蔽的关闭钮，常驻右上角
+            .child(
+                div()
+                    .id("close")
+                    .absolute()
+                    .top(px(6.))
+                    .right(px(8.))
+                    .cursor_pointer()
+                    .px(px(6.))
+                    .rounded(px(4.))
+                    .text_size(px(13.))
+                    .text_color(rgb(0xB7A989))
+                    .hover(|this| this.text_color(rgb(0xB0432E)))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|_, _, window, _| window.remove_window()))
+                    .child("✕"),
+            )
+            // 顶部：朱红「熊」印，与网页版同款
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .justify_between()
-                    .pl(px(14.))
-                    .pr(px(8.))
-                    .pt(px(8.))
-                    .child(div().text_size(px(26.)).child(self.avatar))
+                    .justify_center()
+                    .pt(px(12.))
                     .child(
                         div()
-                            .id("close")
-                            .cursor_pointer()
-                            .px(px(6.))
-                            .rounded(px(4.))
-                            .text_size(px(13.))
-                            .text_color(rgb(0xB7A989))
-                            .hover(|this| this.text_color(rgb(0xB0432E)))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|_, _, window, _| window.remove_window()))
-                            .child("✕"),
+                            .size(px(56.))
+                            .bg(rgb(0xB0432E))
+                            .rounded(px(6.))
+                            .shadow_sm()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .size(px(46.))
+                                    .border_1()
+                                    .border_color(rgb(0xF6EFDD))
+                                    .rounded(px(3.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(26.))
+                                    .text_color(rgb(0xF6EFDD))
+                                    .font_family("KaiTi")
+                                    .child("熊"),
+                            ),
                     ),
             )
             // 正文：紧跟头像起笔，写不下时区内滚动，外形永远紧凑
@@ -364,7 +386,7 @@ fn main() {
         let display = cx.primary_display().map(|d| d.bounds());
         let origin = initial_origin(display);
         // 启动即按占位文本给高度，避免开窗后跳变
-        let initial_h = card_height_for("Bear 正在被 Actions 叫醒……");
+        let initial_h = card_height_for("熊正在被 Actions 叫醒……");
 
         cx.open_window(
             WindowOptions {
@@ -379,6 +401,7 @@ fn main() {
             },
             |window, cx| {
                 window.set_background_appearance(WindowBackgroundAppearance::Blurred);
+                window.set_window_title("postbear · 熊的桌角");
                 cx.new(|cx| {
                     // 窗口尺寸固定，bounds 变化即用户拖动：节流落盘新位置
                     cx.observe_window_bounds(window, |state: &mut BearState, window, _| {
@@ -396,7 +419,6 @@ fn main() {
                     let mut state = BearState {
                         day_no: day_number(),
                         status: Status::Idle,
-                        avatar: "👧",
                         icon: "",
                         temp: "--".into(),
                         full_text: "".into(),
@@ -406,7 +428,7 @@ fn main() {
                         applied_h: None,
                         last_bounds_save: Instant::now(),
                     };
-                    state.begin_typing("Bear 正在被 Actions 叫醒……", cx);
+                    state.begin_typing("熊正在被 Actions 叫醒……", cx);
                     state.refresh(cx);
                     state
                 })

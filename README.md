@@ -1,10 +1,10 @@
-# postbear — Bear 的桌角
+# postbear — 熊的桌角
 
 [![CI](https://github.com/ykunyao/postbear/actions/workflows/ci.yml/badge.svg)](https://github.com/ykunyao/postbear/actions/workflows/ci.yml)
 
 一张住在屏幕右下角的桌面便签。
 
-我的另一个项目 [bear 日记站](https://github.com/ykunyao/bear)每天早上 8 点由 GitHub Actions 自动更新当天的天气与一句话日记；postbear 把它带到你的桌面上——Bear 会当着你的面，把今天的话逐字写完。
+我的另一个项目 [bear 日记站](https://github.com/ykunyao/bear)每天早上 8 点由 GitHub Actions 自动更新当天的天气与一句话日记；postbear 把它带到你的桌面上——熊会当着你的面，把今天的话逐字写完。
 
 ## 下载与运行
 
@@ -20,8 +20,8 @@
 ## 功能
 
 - 📝 新日记送达时自动逐字书写，像有人在敲键盘
-- 😌 Bear 的表情随当天天气变化（晴😊 多云😌 雨😴 雪❄ 雾🌫 雷⛈）
-- ☁ 头顶气泡显示当前天气，底角落款温度与「第 N 天」
+- 🔴 朱红「熊」印，与网页版印章同款
+- 🌦 底角落款天气、温度与「第 N 天」
 - ✋ 按住卡片任意处拖动，位置自动记忆，下次原位复活
 - 📐 卡片高度随文字长度自动伸缩，像真正的手写便签
 - 🔇 启动不抢焦点，安安静静住在角落
